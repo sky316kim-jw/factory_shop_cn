@@ -55,7 +55,13 @@ export default function SupplierOrderDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // 出货登记 (공급업체 유일한 액션)
+  // 수락/거절 모달
+  const [showAcceptModal, setShowAcceptModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [expectedShipDate, setExpectedShipDate] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+
+  // 出货登记
   const [showShipModal, setShowShipModal] = useState(false);
   const [shipDateInput, setShipDateInput] = useState("");
   const [trackingInput, setTrackingInput] = useState("");
@@ -86,9 +92,40 @@ export default function SupplierOrderDetailPage() {
     init();
   }, [router, orderId]);
 
-  // 수락/거절 버튼 삭제됨 — 공급업체는 출고등록만 사용
+  // 订单接受 (수락: 출고예정일 입력 → 생산중으로 변경)
+  const handleAccept = async () => {
+    if (!expectedShipDate) { alert("请输入预计出货日期"); return; }
+    setUpdating(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "생산중", expected_ship_date: expectedShipDate }),
+      });
+      const data = await res.json();
+      if (data.success) { alert("订单已确认！生产开始。"); setShowAcceptModal(false); await fetchOrder(); }
+      else alert(data.error);
+    } catch { alert("服务器错误"); }
+    setUpdating(false);
+  };
 
-  // 下一步状态
+  // 订单拒绝 (거절: 사유 입력 필수)
+  const handleReject = async () => {
+    if (!rejectReason.trim()) { alert("请输入拒绝原因"); return; }
+    setUpdating(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "발주거절", rejection_reason: rejectReason }),
+      });
+      const data = await res.json();
+      if (data.success) { alert("订单已拒绝"); setShowRejectModal(false); await fetchOrder(); }
+      else alert(data.error);
+    } catch { alert("服务器错误"); }
+    setUpdating(false);
+  };
+
   // 出货登记
   const handleShipment = async () => {
     if (!order || !shipDateInput) { alert("请输入出货日期"); return; }
@@ -216,8 +253,22 @@ export default function SupplierOrderDetailPage() {
             </span>
           </div>
 
-          {/* 출고등록 버튼: 입고완료/거절 외 모든 상태에서 표시 (파샬 출고 반복 가능) */}
-          {order.status !== "입고완료" && order.status !== "발주거절" && (
+          {/* 발주확인중: 수락/거절 버튼 표시 */}
+          {order.status === "발주확인중" && (
+            <div className="flex gap-3 mt-6 print:hidden">
+              <button onClick={() => setShowAcceptModal(true)}
+                className="flex-1 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors text-lg">
+                ✅ 接受订单
+              </button>
+              <button onClick={() => setShowRejectModal(true)}
+                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors text-lg">
+                ❌ 拒绝订单
+              </button>
+            </div>
+          )}
+
+          {/* 생산중 이후: 출고등록 버튼 (입고완료/거절 제외, 파샬 출고 반복 가능) */}
+          {!["발주확인중", "입고완료", "발주거절"].includes(order.status) && (
             <div className="mt-6 text-center print:hidden">
               <button onClick={() => setShowShipModal(true)}
                 className="px-8 py-3 bg-purple-600 text-white font-bold text-lg rounded-lg hover:bg-purple-700 transition-colors">
@@ -331,7 +382,52 @@ export default function SupplierOrderDetailPage() {
         )}
       </main>
 
-      {/* 出货登记弹窗 (공급업체 유일한 액션 모달) */}
+      {/* 接受订单弹窗 (수락: 출고예정일 입력) */}
+      {showAcceptModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">确认接受订单</h3>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              请输入预计出货日期 <span className="text-red-500">*</span>
+            </label>
+            <input type="date" value={expectedShipDate} onChange={(e) => setExpectedShipDate(e.target.value)}
+              className="w-full px-4 py-2 border rounded-lg mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => setShowAcceptModal(false)}
+                className="flex-1 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">取消</button>
+              <button onClick={handleAccept} disabled={updating}
+                className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400">
+                {updating ? "处理中..." : "确认接受"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 拒绝订单弹窗 (거절: 사유 입력) */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">拒绝订单</h3>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              拒绝原因 <span className="text-red-500">*</span>
+            </label>
+            <textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="请输入拒绝原因" rows={3}
+              className="w-full px-4 py-2 border rounded-lg mb-4 resize-none" />
+            <div className="flex gap-3">
+              <button onClick={() => setShowRejectModal(false)}
+                className="flex-1 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">取消</button>
+              <button onClick={handleReject} disabled={updating}
+                className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400">
+                {updating ? "处理中..." : "确认拒绝"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 出货登记弹窗 */}
       {showShipModal && order && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-xl p-6 max-w-lg w-full my-8">
