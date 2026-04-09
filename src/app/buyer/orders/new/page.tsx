@@ -489,7 +489,8 @@ function NewOrderPage() {
             <p className="text-sm text-gray-500 mt-1">
               {product.supplier_member_code}
               {product.supplier_sku && ` | ${product.supplier_sku}`}
-              {product.price_cny && ` | \u00A5${product.price_cny}`}
+              {/* 단가: super_admin, super_buyer만 */}
+              {product.price_cny && ["super_admin", "super_buyer"].includes(userRole) && ` | \u00A5${product.price_cny}`}
             </p>
           </div>
         </div>
@@ -755,7 +756,8 @@ function NewOrderPage() {
               <span className="text-lg font-bold text-gray-800">총 수량</span>
               <span className="text-2xl font-bold text-blue-600">{grandTotal()}개</span>
             </div>
-            {product.price_cny && (
+            {/* 총 금액: super_admin, super_buyer만 표시 */}
+            {product.price_cny && ["super_admin", "super_buyer"].includes(userRole) && (
               <div className="flex items-center justify-between mb-4">
                 <span className="text-gray-600">총 금액 (예상)</span>
                 <span className="text-xl font-bold text-blue-600">
