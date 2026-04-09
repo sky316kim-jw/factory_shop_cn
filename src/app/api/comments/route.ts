@@ -37,7 +37,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "필수 정보 부족" }, { status: 400 });
     }
 
-    // AI 검사 + 언어 감지 + 번역
+    // 작성자 역할 조회 (번역 방향 결정용)
+    const { data: authorData } = await supabaseAdmin
+      .from("users").select("role").eq("id", user_id).single();
+    const authorRole = authorData?.role || "buyer";
+    // 공급업체(supplier)가 쓴 글 → 중국어로 간주 → 한국어로 번역
+    // 바이어/관리자가 쓴 글 → 한국어로 간주 → 중국어로 번역
+    const isSupplierAuthor = authorRole === "supplier";
+    const forcedLanguage = isSupplierAuthor ? "zh" : "ko";
+    const translateDirection = isSupplierAuthor
+      ? "Translate the message from Chinese to Korean. Output Korean translation."
+      : "Translate the message from Korean to Chinese. Output Chinese translation.";
+
+    // AI 검사 + 번역 (번역 방향을 역할 기반으로 강제)
     const aiResponse = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 512,
@@ -46,10 +58,10 @@ export async function POST(request: NextRequest) {
         content: `Analyze this message. Output ONLY valid JSON, nothing else.
 
 Message: "${message.trim()}"
+Author role: ${isSupplierAuthor ? "Chinese supplier" : "Korean buyer/admin"}
 
 Rules:
-1. language: "ko" if Korean, "zh" if Chinese
-2. is_blocked: true ONLY if the message is CLEARLY trying to:
+1. is_blocked: true ONLY if the message is CLEARLY trying to:
    - Negotiate prices or ask about costs (询价/报价/多少钱/가격협상/단가협상)
    - Exchange personal contact info (phone numbers like 010-xxxx, emails, 微信号/WeChat ID, 카카오톡, LINE, Telegram)
 
@@ -60,17 +72,18 @@ Rules:
    - Adding colors, changing specifications (加颜色/改规格)
    - Any production-related communication
 
-   IMPORTANT: Words like 加颜色(add color), 可以生产(can produce) are production-related and must NOT be blocked. Do not block based on individual characters.
+   IMPORTANT: Words like 加颜色(add color), 可以生产(can produce) are production-related and must NOT be blocked.
 
-3. translated: Translate Korean→Chinese, Chinese→Korean
+2. translated: ${translateDirection}
 
-JSON: {"language":"zh","is_blocked":false,"translated":"translation here"}`,
+JSON: {"is_blocked":false,"translated":"translation result here"}`,
       }],
     });
 
     const textBlock = aiResponse.content.find((b) => b.type === "text");
     const rawText = textBlock?.text || "";
-    let language = "ko";
+    // 언어는 작성자 역할로 강제 결정 (AI 감지에 의존하지 않음)
+    const language = forcedLanguage;
     let isBlocked = false;
     let translated = "";
 
@@ -79,8 +92,8 @@ JSON: {"language":"zh","is_blocked":false,"translated":"translation here"}`,
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        language = parsed.language || "ko";
-        isBlocked = parsed.is_blocked === true; // 명시적으로 true인 경우만 차단
+        // language는 작성자 역할로 이미 결정됨 (AI 감지 사용 안 함)
+        isBlocked = parsed.is_blocked === true;
         translated = parsed.translated || "";
       }
     } catch {
