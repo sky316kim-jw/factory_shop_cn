@@ -94,6 +94,14 @@ export async function GET(
       .eq("po_id", orderId)
       .order("created_at", { ascending: true });
 
+    // #24 출고 비고 조회
+    const { data: shipmentRecords } = await supabaseAdmin
+      .from("shipment_records")
+      .select("id, ship_date, tracking_number, note, created_at")
+      .eq("po_id", orderId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
     return NextResponse.json({
       order: {
         ...order,
@@ -102,6 +110,7 @@ export async function GET(
         supplier_code: supplierCode,
         attachments: attachments || [],
         inbound_records: inboundRecords || [],
+        shipment_note: shipmentRecords?.[0]?.note || null,
         total_qty: totalQty,
         total_received_qty: totalReceivedQty,
       },

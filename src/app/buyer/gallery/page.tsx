@@ -29,8 +29,8 @@ interface SupplierInfo {
   company_name: string;
 }
 
-// 필터 타입
-type FilterType = "all" | "recent" | "supplier" | "category" | "season";
+// 필터 타입 (#4 년도별 필터 추가)
+type FilterType = "all" | "recent" | "supplier" | "category" | "season" | "year";
 
 export default function BuyerGalleryPage() {
   const router = useRouter();
@@ -48,6 +48,7 @@ export default function BuyerGalleryPage() {
 
   // 사이드바 섹션 열림/닫힘
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    year: false,
     supplier: false,
     category: false,
     season: false,
@@ -178,6 +179,8 @@ export default function BuyerGalleryPage() {
         return allProducts.filter((p) => p.category_code === filterValue);
       case "season":
         return allProducts.filter((p) => p.season_code === filterValue);
+      case "year":
+        return allProducts.filter((p) => p.created_at.startsWith(filterValue));
       default:
         return allProducts;
     }
@@ -193,6 +196,7 @@ export default function BuyerGalleryPage() {
       }
       case "category": return `${CATEGORY_CODES[filterValue] || filterValue}`;
       case "season": return `${SEASON_CODES[filterValue] || filterValue}`;
+      case "year": return `${filterValue}년`;
       default: return "전체 상품";
     }
   })();
@@ -232,6 +236,35 @@ export default function BuyerGalleryPage() {
 
       {/* 구분선 */}
       <div className="border-t my-2" />
+
+      {/* #4 년도별 보기 */}
+      <div>
+        <button
+          onClick={() => toggleSection("year")}
+          className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 rounded-lg"
+        >
+          년도별 보기
+          <span className="text-gray-400 text-xs">{openSections.year ? "▲" : "▼"}</span>
+        </button>
+        {openSections.year && (
+          <div className="ml-2 space-y-0.5">
+            {(() => {
+              // 상품 등록 년도 추출 (고유값)
+              const years = [...new Set(allProducts.map((p) => p.created_at.substring(0, 4)))].sort().reverse();
+              return years.map((year) => {
+                const count = allProducts.filter((p) => p.created_at.startsWith(year)).length;
+                return (
+                  <button key={year} onClick={() => handleMenuClick("year", year)}
+                    className={menuItemClass("year", year)}>
+                    {year}년
+                    {count > 0 && <span className="ml-auto text-xs text-gray-400">({count})</span>}
+                  </button>
+                );
+              });
+            })()}
+          </div>
+        )}
+      </div>
 
       {/* 공급업체별 */}
       <div>

@@ -180,6 +180,23 @@ function NewOrderPage() {
       }
       setMatrix(initMatrix);
 
+      // #6 임시저장 데이터 복원
+      try {
+        const draftStr = localStorage.getItem(`order_draft_${prod.id}`);
+        if (draftStr) {
+          const draft = JSON.parse(draftStr);
+          if (draft.matrix) setMatrix(draft.matrix);
+          if (draft.customColors) setCustomColors(draft.customColors);
+          if (draft.embroideryMap) setEmbroideryMap(draft.embroideryMap);
+          if (draft.pantoneMap) setPantoneMap(draft.pantoneMap);
+          if (draft.notes) setNotes(draft.notes);
+          if (draft.colorChangeReq) setColorChangeReq(draft.colorChangeReq);
+          if (draft.printReq) setPrintReq(draft.printReq);
+          if (draft.otherReq) setOtherReq(draft.otherReq);
+          if (draft.labelMap) setLabelMap(draft.labelMap);
+        }
+      } catch { /* 복원 실패 무시 */ }
+
       // 사이즈 라벨 초기화
       const initLabels: SizeLabelMap = {};
       for (const size of prod.sizes) {
@@ -407,6 +424,8 @@ function NewOrderPage() {
 
       const data = await res.json();
       if (data.success) {
+        // 발주 성공 시 임시저장 삭제
+        localStorage.removeItem(`order_draft_${product.id}`);
         // 파일 첨부가 있으면 업로드
         if (attachFiles.length > 0 && data.order?.id) {
           for (const file of attachFiles) {
@@ -749,35 +768,71 @@ function NewOrderPage() {
           </div>
         </div>
 
-        {/* 합계 + 발주 버튼 */}
-        {grandTotal() > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-lg font-bold text-gray-800">총 수량</span>
-              <span className="text-2xl font-bold text-blue-600">{grandTotal()}개</span>
-            </div>
-            {/* 총 금액: super_admin, super_buyer만 표시 */}
-            {product.price_cny && ["super_admin", "super_buyer"].includes(userRole) && (
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-gray-600">총 금액 (예상)</span>
-                <span className="text-xl font-bold text-blue-600">
-                  ¥{(grandTotal() * product.price_cny).toLocaleString()}
-                </span>
+        {/* #6 임시저장 / 취소 / 발주 버튼 */}
+        <div className="bg-white rounded-xl shadow-sm border p-6">
+          {grandTotal() > 0 && (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-lg font-bold text-gray-800">총 수량</span>
+                <span className="text-2xl font-bold text-blue-600">{grandTotal()}개</span>
               </div>
-            )}
-            <div className="text-xs text-gray-500 mb-4">
-              {product.colors.filter((c) => colorTotal(c.code) > 0).length}개 컬러 /
-              {" "}{product.sizes.filter((s) => sizeTotal(s) > 0).length}개 사이즈
-            </div>
+              {/* 총 금액: super_admin, super_buyer만 표시 */}
+              {product.price_cny && ["super_admin", "super_buyer"].includes(userRole) && (
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-gray-600">총 금액 (예상)</span>
+                  <span className="text-xl font-bold text-blue-600">
+                    ¥{(grandTotal() * product.price_cny).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <div className="text-xs text-gray-500 mb-4">
+                {product.colors.filter((c) => colorTotal(c.code) > 0).length}개 컬러 /
+                {" "}{product.sizes.filter((s) => sizeTotal(s) > 0).length}개 사이즈
+              </div>
+            </>
+          )}
+
+          <div className="flex gap-3">
+            {/* 취소 버튼 */}
+            <button
+              onClick={() => {
+                if (confirm("작성 중인 내용이 삭제됩니다. 취소하시겠습니까?")) {
+                  // 임시저장 데이터 삭제
+                  localStorage.removeItem(`order_draft_${product.id}`);
+                  router.push(`/buyer/products/${product.id}`);
+                }
+              }}
+              className="px-6 py-3 border-2 border-gray-300 text-gray-600 font-bold rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              취소
+            </button>
+
+            {/* 임시저장 버튼 */}
+            <button
+              onClick={() => {
+                const draft = {
+                  matrix, customColors, labelMap, embroideryMap, pantoneMap,
+                  notes, colorChangeReq, printReq, otherReq,
+                  savedAt: new Date().toISOString(),
+                };
+                localStorage.setItem(`order_draft_${product.id}`, JSON.stringify(draft));
+                alert("임시저장되었습니다.");
+              }}
+              className="px-6 py-3 border-2 border-blue-300 text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition-colors"
+            >
+              임시저장
+            </button>
+
+            {/* 발주 제출 버튼 */}
             <button
               onClick={handleSubmit}
-              disabled={submitting}
-              className="w-full py-3 bg-blue-600 text-white text-lg font-bold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+              disabled={submitting || grandTotal() === 0}
+              className="flex-1 py-3 bg-blue-600 text-white text-lg font-bold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
             >
               {submitting ? "처리 중..." : userRole === "buyer" ? "발주 요청" : "발주 확정"}
             </button>
           </div>
-        )}
+        </div>
       </main>
     </div>
   );

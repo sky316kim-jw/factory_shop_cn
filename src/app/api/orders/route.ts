@@ -186,12 +186,12 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // 내부품번 매핑 테이블에도 저장
-      await supabaseAdmin.from("internal_skus").insert({
+      // #8 내부품번 매핑 테이블 저장 (중복 시 무시 - 취소/반려 후 재발주 가능하도록)
+      await supabaseAdmin.from("internal_skus").upsert({
         sku_code: skuCode,
         product_id: item.product_id,
         po_item_id: poItemData.id,
-      });
+      }, { onConflict: "sku_code" });
 
       createdItems.push(poItemData);
     }

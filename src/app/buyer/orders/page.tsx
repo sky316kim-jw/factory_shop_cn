@@ -26,16 +26,17 @@ interface OrderRow {
   total_received: number;
 }
 
+// 상태별 배지 색상 (#11 수정: 입고완료와 발주대기 색상 구분)
 const statusColor: Record<string, string> = {
   "발주요청대기": "bg-gray-200 text-gray-600",
-  "발주확인중": "bg-yellow-100 text-yellow-700",
-  "발주확정": "bg-green-100 text-green-700",
+  "발주확인중": "bg-gray-200 text-gray-600",
+  "발주확정": "bg-blue-100 text-blue-700",
   "생산중": "bg-blue-100 text-blue-700",
-  "선적완료": "bg-purple-100 text-purple-700",
-  "부분입고": "bg-orange-100 text-orange-700",
-  "입고완료": "bg-gray-200 text-gray-700",
+  "선적완료": "bg-orange-100 text-orange-700",
+  "부분입고": "bg-purple-100 text-purple-700",
+  "입고완료": "bg-green-100 text-green-700",
   "발주거절": "bg-red-100 text-red-700",
-  "쇼티지마감": "bg-orange-200 text-orange-800",
+  "쇼티지마감": "bg-red-100 text-red-700",
 };
 
 export default function BuyerOrdersPage() {
@@ -45,11 +46,20 @@ export default function BuyerOrdersPage() {
   const [canViewPrice, setCanViewPrice] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSuper, setIsSuper] = useState(false);
+  // #12 검색/정렬 상태
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<string>("created_at");
+  const [sortAsc, setSortAsc] = useState(false);
+  // #2 발주 승인/반려 처리 중
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push("/login"); return; }
+      setUserId(session.user.id);
 
       // 권한 확인
       const { data: userData } = await supabase
@@ -78,7 +88,7 @@ export default function BuyerOrdersPage() {
           let totalReceived = 0;
           let productNameCn = "";
           let productNameKo = "";
-          let supplierCode = "-";
+          const supplierCode = "-";
           let supplierCompany = "-";
           let buyerSku = "";
           const koreaSkus: string[] = [];
@@ -144,6 +154,88 @@ export default function BuyerOrdersPage() {
     init();
   }, [router]);
 
+  // #2 발주 승인 처리 (발주요청대기 → 발주확인중)
+  const handleApprove = async (orderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("이 발주를 승인하시겠습니까?")) return;
+    setProcessingId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "발주확인중" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: "발주확인중" } : o));
+        alert("발주가 승인되었습니다.");
+      } else alert(data.error);
+    } catch { alert("서버 오류"); }
+    setProcessingId(null);
+  };
+
+  // #2 발주 반려 처리 (→ 취소(대기) 상태)
+  const handleReject = async (orderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const reason = prompt("반려 사유를 입력하세요:");
+    if (!reason?.trim()) return;
+    setProcessingId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "발주거절", rejection_reason: reason.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: "발주거절" } : o));
+        alert("발주가 반려되었습니다.");
+      } else alert(data.error);
+    } catch { alert("서버 오류"); }
+    setProcessingId(null);
+  };
+
+  // #12 정렬 토글
+  const handleSort = (field: string) => {
+    if (sortField === field) { setSortAsc(!sortAsc); }
+    else { setSortField(field); setSortAsc(true); }
+  };
+
+  // #12 검색 + 정렬 적용
+  const displayOrders = (() => {
+    let filtered = orders;
+    // 검색 필터
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter((o) =>
+        o.order_number.toLowerCase().includes(q) ||
+        o.product_name_cn.toLowerCase().includes(q) ||
+        (o.product_name_ko || "").toLowerCase().includes(q) ||
+        o.supplier_code.toLowerCase().includes(q) ||
+        o.supplier_company.toLowerCase().includes(q)
+      );
+    }
+    // 정렬
+    return [...filtered].sort((a, b) => {
+      let va: string | number = "";
+      let vb: string | number = "";
+      switch (sortField) {
+        case "created_at": va = a.created_at; vb = b.created_at; break;
+        case "status": va = a.status; vb = b.status; break;
+        case "supplier_code": va = a.supplier_code; vb = b.supplier_code; break;
+        case "order_number": va = a.order_number; vb = b.order_number; break;
+        case "total_qty": va = a.total_qty; vb = b.total_qty; break;
+        default: va = a.created_at; vb = b.created_at;
+      }
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  })();
+
+  // 정렬 아이콘
+  const sortIcon = (field: string) => sortField === field ? (sortAsc ? " ▲" : " ▼") : "";
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
@@ -159,6 +251,17 @@ export default function BuyerOrdersPage() {
             )}
           </div>
         </div>
+
+        {/* #12 검색창 */}
+        {!loading && orders.length > 0 && (
+          <div className="mb-4">
+            <input
+              type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="발주번호, 상품명, 공급업체로 검색..."
+              className="w-full sm:w-80 px-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
 
         {loading && <div className="text-center py-20 text-gray-500">불러오는 중...</div>}
 
@@ -176,21 +279,22 @@ export default function BuyerOrdersPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap">발주번호</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap">공급업체</th>
+                    <th onClick={() => handleSort("order_number")} className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap cursor-pointer hover:text-blue-600">발주번호{sortIcon("order_number")}</th>
+                    <th onClick={() => handleSort("supplier_code")} className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap cursor-pointer hover:text-blue-600">공급업체{sortIcon("supplier_code")}</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap">상품명</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap">바이어품번</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap">한국품번</th>
                     {canViewPrice && <th className="text-right px-3 py-3 font-medium text-gray-600 whitespace-nowrap">총금액</th>}
-                    <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap">총수량</th>
-                    <th className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap">발주일</th>
+                    <th onClick={() => handleSort("total_qty")} className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap cursor-pointer hover:text-blue-600">총수량{sortIcon("total_qty")}</th>
+                    <th onClick={() => handleSort("created_at")} className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap cursor-pointer hover:text-blue-600">발주일{sortIcon("created_at")}</th>
                     <th className="text-left px-3 py-3 font-medium text-gray-600 whitespace-nowrap">출고예정일</th>
-                    <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap">상태</th>
+                    <th onClick={() => handleSort("status")} className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap cursor-pointer hover:text-blue-600">상태{sortIcon("status")}</th>
                     <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap">입고현황</th>
+                    {isAdmin && <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap">관리</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {orders.map((o) => (
+                  {displayOrders.map((o) => (
                     <tr key={o.id} onClick={() => router.push(`/buyer/orders/${o.id}`)}
                       className="hover:bg-gray-50 cursor-pointer">
                       {/* 발주번호 */}
@@ -258,6 +362,26 @@ export default function BuyerOrdersPage() {
                           {o.total_received}/{o.total_qty}
                         </span>
                       </td>
+
+                      {/* #2 관리자 승인/반려 버튼 */}
+                      {isAdmin && (
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          {o.status === "발주요청대기" && (
+                            <div className="flex gap-1 justify-center">
+                              <button onClick={(e) => handleApprove(o.id, e)}
+                                disabled={processingId === o.id}
+                                className="px-2 py-1 text-[10px] bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400">
+                                승인
+                              </button>
+                              <button onClick={(e) => handleReject(o.id, e)}
+                                disabled={processingId === o.id}
+                                className="px-2 py-1 text-[10px] bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400">
+                                반려
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

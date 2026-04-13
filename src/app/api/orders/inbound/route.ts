@@ -33,12 +33,22 @@ export async function POST(request: NextRequest) {
     for (const item of items) {
       const shortageQty = Math.max(0, item.ordered_qty - item.received_qty);
 
-      await supabaseAdmin.from("inbound_records").insert({
-        po_id, po_item_id: item.po_item_id,
-        ordered_qty: item.ordered_qty, received_qty: item.received_qty,
-        shortage_qty: shortageQty, is_shortage_closed: action === "shortage_close",
-        inbound_date: now,
-      });
+      // #14 쇼티지 마감 시: 새로운 입고 이력 생성하지 않고 상태만 변경
+      if (action === "shortage_close") {
+        // 쇼티지 마감은 상태 변경만 (입고 이력 미생성)
+      } else {
+        // 일반 입고: 이번 회차에 신규 입고분이 있을 때만 기록
+        const prevReceived = (item.received_qty || 0) - (item.new_qty || 0);
+        const newQty = item.received_qty - prevReceived;
+        if (newQty > 0) {
+          await supabaseAdmin.from("inbound_records").insert({
+            po_id, po_item_id: item.po_item_id,
+            ordered_qty: item.ordered_qty, received_qty: newQty,
+            shortage_qty: shortageQty, is_shortage_closed: false,
+            inbound_date: now,
+          });
+        }
+      }
 
       await supabaseAdmin.from("po_items")
         .update({ received_qty: item.received_qty })
@@ -64,8 +74,8 @@ export async function POST(request: NextRequest) {
     let newStatus: string;
 
     if (action === "shortage_close") {
-      // 쇼티지 마감 → 입고완료로 처리 (잔량은 쇼티지로 기록)
-      newStatus = "입고완료";
+      // #14 쇼티지 마감 → 쇼티지마감 상태로 처리
+      newStatus = "쇼티지마감";
     } else if (action === "partial") {
       // 부분 입고 → 누적 입고수량 확인하여 자동 입고완료 판단
       const { data: allItems } = await supabaseAdmin

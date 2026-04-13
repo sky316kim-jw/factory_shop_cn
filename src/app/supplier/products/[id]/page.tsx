@@ -140,7 +140,10 @@ export default function EditProductPage() {
       "41": "蓝绿", "42": "薄荷绿", "43": "浅蓝", "44": "深蓝", "45": "浅藏青",
       "46": "深藏青", "47": "蓝藏青",
     };
-    setColors([...colors, { code: selectedColorCode, name_cn: cnNames[selectedColorCode] || "", name_ko }]);
+    // #17 컬러코드 번호순 정렬 (01이 항상 상단)
+    const newColors = [...colors, { code: selectedColorCode, name_cn: cnNames[selectedColorCode] || "", name_ko }];
+    newColors.sort((a, b) => a.code.localeCompare(b.code));
+    setColors(newColors);
     setSelectedColorCode("");
   };
 
@@ -630,14 +633,15 @@ export default function EditProductPage() {
           </div>
 
           {/* ========== 商品描述 ========== */}
+          {/* #16 textarea 크기 조절 가능하도록 수정 */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">商品描述</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="请输入商品描述"
-              rows={3}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              rows={5}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y min-h-[120px]"
             />
           </div>
 

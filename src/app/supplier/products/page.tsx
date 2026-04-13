@@ -27,6 +27,8 @@ export default function SupplierProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  // #15 새 발주 알림
+  const [newOrderCount, setNewOrderCount] = useState(0);
 
   useEffect(() => {
     const init = async () => {
@@ -80,6 +82,17 @@ export default function SupplierProductsPage() {
       );
 
       setProducts(enriched);
+
+      // #15 새 발주 건수 확인
+      try {
+        const ordersRes = await fetch(`/api/orders?user_id=${userId}&role=supplier`);
+        const ordersData = await ordersRes.json();
+        const pendingOrders = (ordersData.orders || []).filter(
+          (o: { status: string }) => o.status === "발주확인중"
+        );
+        setNewOrderCount(pendingOrders.length);
+      } catch { /* 무시 */ }
+
       setLoading(false);
     };
 
@@ -109,6 +122,23 @@ export default function SupplierProductsPage() {
             </button>
           </div>
         </div>
+
+        {/* #15 새 발주 알림 배너 */}
+        {newOrderCount > 0 && (
+          <div onClick={() => router.push("/supplier/orders")}
+            className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-6 cursor-pointer hover:bg-red-100 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🔔</span>
+                <div>
+                  <p className="font-bold text-red-700">有 {newOrderCount} 个新订单待确认！</p>
+                  <p className="text-sm text-red-600">点击查看订单详情</p>
+                </div>
+              </div>
+              <span className="bg-red-600 text-white text-lg font-bold px-3 py-1 rounded-full">{newOrderCount}</span>
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div className="text-center py-20 text-gray-500">加载中...</div>

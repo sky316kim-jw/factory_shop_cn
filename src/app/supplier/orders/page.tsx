@@ -26,7 +26,7 @@ interface Order {
 }
 
 const statusLabel: Record<string, string> = {
-  "발주요청대기": "待审批",
+  "발주요청대기": "⏳ 未审批(等待买家审批)",
   "발주확인중": "待确认",
   "발주확정": "已确定",
   "생산중": "生产中",
@@ -37,16 +37,17 @@ const statusLabel: Record<string, string> = {
   "쇼티지마감": "差异结案",
 };
 
+// 상태별 배지 색상 (#11 수정)
 const statusColor: Record<string, string> = {
   "발주요청대기": "bg-gray-200 text-gray-600",
-  "발주확인중": "bg-yellow-100 text-yellow-700",
-  "발주확정": "bg-green-100 text-green-700",
+  "발주확인중": "bg-gray-200 text-gray-600",
+  "발주확정": "bg-blue-100 text-blue-700",
   "생산중": "bg-blue-100 text-blue-700",
-  "선적완료": "bg-purple-100 text-purple-700",
-  "부분입고": "bg-orange-100 text-orange-700",
-  "입고완료": "bg-gray-300 text-gray-700",
+  "선적완료": "bg-orange-100 text-orange-700",
+  "부분입고": "bg-purple-100 text-purple-700",
+  "입고완료": "bg-green-100 text-green-700",
   "발주거절": "bg-red-100 text-red-700",
-  "쇼티지마감": "bg-orange-200 text-orange-800",
+  "쇼티지마감": "bg-red-100 text-red-700",
 };
 
 export default function SupplierOrdersPage() {

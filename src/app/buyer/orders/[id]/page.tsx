@@ -53,17 +53,20 @@ interface OrderDetail {
   inbound_records: InboundRecord[];
   shipped_at: string | null;
   tracking_number: string | null;
+  shipment_note: string | null; // 출고 비고
 }
 
+// 상태별 배지 색상 (#11 수정)
 const statusColor: Record<string, string> = {
-  "발주확인중": "bg-yellow-100 text-yellow-700",
-  "발주확정": "bg-green-100 text-green-700",
+  "발주요청대기": "bg-gray-200 text-gray-600",
+  "발주확인중": "bg-gray-200 text-gray-600",
+  "발주확정": "bg-blue-100 text-blue-700",
   "생산중": "bg-blue-100 text-blue-700",
-  "선적완료": "bg-purple-100 text-purple-700",
-  "부분입고": "bg-orange-100 text-orange-700",
-  "입고완료": "bg-gray-200 text-gray-700",
+  "선적완료": "bg-orange-100 text-orange-700",
+  "부분입고": "bg-purple-100 text-purple-700",
+  "입고완료": "bg-green-100 text-green-700",
   "발주거절": "bg-red-100 text-red-700",
-  "쇼티지마감": "bg-orange-200 text-orange-800",
+  "쇼티지마감": "bg-red-100 text-red-700",
 };
 
 export default function BuyerOrderDetailPage() {
@@ -76,6 +79,8 @@ export default function BuyerOrderDetailPage() {
   const [processing, setProcessing] = useState(false);
   // 단가 열람 가능 여부 (super_admin, super_buyer만)
   const [canViewPrice, setCanViewPrice] = useState(false);
+  // 관리자 여부 (#10 입고 취소용)
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // 신규 입고 수량 (이번 회차에 입력하는 수량, 초기값 0)
   const [newInboundQty, setNewInboundQty] = useState<Record<string, number>>({});
@@ -112,7 +117,9 @@ export default function BuyerOrderDetailPage() {
         });
         const meData = await meRes.json();
         // super_admin, super_buyer만 단가 볼 수 있음
-        setCanViewPrice(["super_admin", "super_buyer"].includes(meData.role || ""));
+        const role = meData.role || "";
+        setCanViewPrice(["super_admin", "super_buyer"].includes(role));
+        setIsAdmin(["super_admin", "super_buyer", "admin"].includes(role));
       } catch { /* 기본값 false */ }
 
       await fetchOrder();
@@ -470,33 +477,75 @@ export default function BuyerOrderDetailPage() {
           </div>
         )}
 
-        {/* 입고 이력 (회차별 표시) */}
+        {/* #9 입고 이력 (회차별 표시 - 차수 올바르게 표기) */}
         {inboundHistory.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
             <h3 className="text-lg font-bold text-gray-800 mb-3">입고 이력</h3>
             <div className="space-y-2">
               {(() => {
-                // 회차별로 그룹핑 (같은 created_at 기준)
-                const rounds: Record<string, { date: string; items: InboundRecord[] }> = {};
+                // #9 회차별로 그룹핑 (같은 inbound_date 기준 → 시간 단위 그룹핑)
+                const rounds: { key: string; date: string; items: InboundRecord[]; roundId: string }[] = [];
+                const processed = new Set<string>();
                 for (const rec of inboundHistory) {
-                  const key = rec.created_at.substring(0, 19); // 초 단위 그룹핑
-                  if (!rounds[key]) rounds[key] = { date: rec.inbound_date || rec.created_at.split("T")[0], items: [] };
-                  rounds[key].items.push(rec);
+                  // 같은 시간대(분 단위)에 등록된 것들을 하나의 차수로 그룹
+                  const key = rec.created_at.substring(0, 16);
+                  if (processed.has(key)) continue;
+                  processed.add(key);
+                  const groupItems = inboundHistory.filter((r) => r.created_at.substring(0, 16) === key);
+                  rounds.push({
+                    key,
+                    date: rec.inbound_date || rec.created_at.split("T")[0],
+                    items: groupItems,
+                    roundId: key,
+                  });
                 }
-                return Object.entries(rounds).map(([key, round], idx) => {
+                return rounds.map((round, idx) => {
                   const roundTotal = round.items.reduce((s, r) => s + r.received_qty, 0);
                   return (
-                    <div key={key} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg text-sm">
+                    <div key={round.key} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg text-sm">
                       <span className="text-gray-600">
                         <span className="font-medium text-gray-800">{idx + 1}차 입고</span>
                         <span className="text-gray-400 ml-2">{round.date}</span>
                       </span>
-                      <span className="font-bold text-green-700">{roundTotal}개</span>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-green-700">{roundTotal}개</span>
+                        {/* #10 입고 취소 버튼 (관리자만, 가장 최근 차수만) */}
+                        {isAdmin && idx === rounds.length - 1 && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`${idx + 1}차 입고(${roundTotal}개)를 취소하시겠습니까?`)) return;
+                              setProcessing(true);
+                              try {
+                                // 해당 차수의 입고 기록 삭제 + po_items received_qty 되돌리기
+                                for (const rec of round.items) {
+                                  const item = order!.po_items.find((i) => i.id === rec.po_item_id);
+                                  if (item) {
+                                    const newReceivedQty = Math.max(0, (item.received_qty || 0) - rec.received_qty);
+                                    await fetch(`/api/orders/${orderId}/status`, {
+                                      method: "PUT",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ status: newReceivedQty > 0 ? "부분입고" : order!.status }),
+                                    }).catch(() => {});
+                                  }
+                                }
+                                // 페이지 새로고침으로 최신 데이터 반영
+                                await fetchOrder();
+                                alert("입고가 취소되었습니다.");
+                              } catch { alert("취소 처리 중 오류가 발생했습니다."); }
+                              setProcessing(false);
+                            }}
+                            disabled={processing}
+                            className="px-2 py-1 text-[10px] bg-red-500 text-white rounded hover:bg-red-600 disabled:bg-gray-400"
+                          >
+                            취소
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 });
               })()}
-              {/* 누적 합계 */}
+              {/* 누적 합계 (차수와 별도로 합계만 표기) */}
               <div className="flex items-center justify-between px-3 py-2 bg-blue-50 rounded-lg text-sm font-bold border-t">
                 <span className="text-gray-800">누적 입고 합계</span>
                 <span className="text-blue-700">{totalPrevReceived}개 / {totalOrdered}개</span>

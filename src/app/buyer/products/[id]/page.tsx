@@ -6,7 +6,27 @@ import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Header from "@/components/Header";
 import ProductComments from "@/components/ProductComments";
-import { CATEGORY_CODES, SEASON_CODES, COLOR_CODES } from "@/utils/fashion-codes";
+import { CATEGORY_CODES, SEASON_CODES } from "@/utils/fashion-codes";
+
+// #5 원단 혼용율 중국어→한국어 변환
+const FABRIC_CN_TO_KO: Record<string, string> = {
+  "棉": "면", "纯棉": "면", "涤纶": "폴리에스터", "聚酯纤维": "폴리에스터", "聚酯": "폴리에스터",
+  "氨纶": "스판덱스", "弹力": "스판덱스", "尼龙": "나일론", "锦纶": "나일론",
+  "粘胶": "레이온", "人造棉": "레이온", "人棉": "레이온", "粘纤": "레이온",
+  "真丝": "실크", "丝": "실크", "桑蚕丝": "실크", "蚕丝": "실크",
+  "羊毛": "울", "毛": "울", "羊绒": "캐시미어", "麻": "린넨", "亚麻": "린넨",
+  "莫代尔": "모달", "天丝": "텐셀", "莱赛尔": "텐셀", "醋酸": "아세테이트",
+  "铜氨": "큐프라", "腈纶": "아크릴", "聚氨酯": "폴리우레탄", "PU": "PU",
+};
+function translateFabric(text: string): string {
+  if (!text) return "";
+  let result = text;
+  // 중국어 성분명을 한국어로 치환
+  for (const [cn, ko] of Object.entries(FABRIC_CN_TO_KO)) {
+    result = result.replace(new RegExp(cn, "g"), ko);
+  }
+  return result;
+}
 
 // 상품 상세 타입
 interface ProductDetail {
@@ -312,7 +332,7 @@ export default function BuyerProductDetailPage() {
                 {product.fabric_composition && (
                   <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="text-gray-500">원단</span>
-                    <span className="font-medium">{product.fabric_composition}</span>
+                    <span className="font-medium">{translateFabric(product.fabric_composition)}</span>
                   </div>
                 )}
                 <div className="flex justify-between py-2 border-b border-gray-100">

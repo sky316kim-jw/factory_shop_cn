@@ -7,6 +7,23 @@ import { supabase } from "@/lib/supabase";
 import Header from "@/components/Header";
 import ProductComments from "@/components/ProductComments";
 
+// #23 컬러코드 → 중국어 이름 매핑
+const COLOR_CN: Record<string, string> = {
+  "01": "白色", "02": "黑色", "03": "藏青色", "04": "黄色", "05": "红色",
+  "06": "酒红色", "07": "米色", "08": "棕色", "09": "橙色", "10": "绿色",
+  "11": "象牙白", "12": "粉色", "13": "蓝色", "14": "卡其色", "15": "灰色",
+  "16": "炭灰", "17": "紫色", "18": "天蓝色", "19": "芥末黄", "20": "可可色",
+  "21": "浅灰", "22": "墨绿", "23": "浅米", "24": "深炭灰", "25": "中灰",
+  "26": "深灰", "27": "米白色", "28": "浅炭灰", "29": "中炭灰", "30": "红橙",
+  "31": "玫红", "32": "藕粉", "33": "浅粉", "34": "深粉", "35": "酒红",
+  "36": "浅绿", "37": "深绿", "38": "军绿", "39": "森林绿", "40": "中绿",
+  "41": "蓝绿", "42": "薄荷绿", "43": "浅蓝", "44": "深蓝", "45": "浅藏青",
+  "46": "深藏青", "47": "蓝藏青",
+};
+// 컬러코드로 중국어 이름 가져오기
+const getColorCn = (code: string | null, fallback: string | null) =>
+  (code && COLOR_CN[code]) || fallback || "";
+
 // 订单详情类型
 interface OrderDetail {
   id: string;
@@ -41,6 +58,7 @@ interface OrderDetail {
   attachments: { id: string; file_url: string; file_name: string; file_type: string }[];
   shipped_at: string | null;
   tracking_number: string | null;
+  shipment_note: string | null; // #24 출고 비고
 }
 
 // 공급업체는 진행바 없이 출고등록 버튼만 사용
@@ -60,6 +78,8 @@ export default function SupplierOrderDetailPage() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [expectedShipDate, setExpectedShipDate] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  // #21 미등록 색상 제외 체크박스
+  const [excludedItems, setExcludedItems] = useState<Set<string>>(new Set());
 
   // 出货登记
   const [showShipModal, setShowShipModal] = useState(false);
@@ -289,8 +309,25 @@ export default function SupplierOrderDetailPage() {
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
           <h3 className="text-lg font-bold text-gray-800 mb-4">订单商品</h3>
           <div className="space-y-4">
-            {order.po_items.map((item) => (
-              <div key={item.id} className={`flex gap-4 p-4 border rounded-lg ${item.is_custom_color ? "border-red-300 bg-red-50" : ""}`}>
+            {order.po_items.map((item) => {
+              const isExcluded = excludedItems.has(item.id);
+              return (
+              <div key={item.id} className={`flex gap-4 p-4 border rounded-lg ${isExcluded ? "opacity-40 bg-gray-100" : item.is_custom_color ? "border-red-300 bg-red-50" : ""}`}>
+                {/* #21 미등록 색상 제외 체크박스 */}
+                {item.is_custom_color && order.status === "발주확인중" && (
+                  <div className="flex items-center">
+                    <input type="checkbox" checked={isExcluded}
+                      onChange={() => {
+                        setExcludedItems((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(item.id)) next.delete(item.id);
+                          else next.add(item.id);
+                          return next;
+                        });
+                      }}
+                      className="w-5 h-5 text-red-600 rounded" title="排除此颜色" />
+                  </div>
+                )}
                 <div className="w-16 h-16 flex-shrink-0 bg-gray-100 rounded-lg overflow-hidden">
                   {item.product_image ? (
                     <img src={item.product_image} alt="" className="w-full h-full object-cover" />
@@ -302,6 +339,7 @@ export default function SupplierOrderDetailPage() {
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-gray-800">{item.products?.name_cn || "商品"}</span>
                     {item.is_custom_color && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded">未登记颜色</span>}
+                    {isExcluded && <span className="text-[10px] bg-gray-500 text-white px-1.5 py-0.5 rounded">已排除</span>}
                   </div>
                   <p className="text-gray-500 mt-0.5">
                     买家品号: <span className="font-mono text-blue-600 font-medium">{item.internal_sku}</span>
@@ -313,7 +351,7 @@ export default function SupplierOrderDetailPage() {
                   )}
                   <div className="text-gray-500 mt-0.5 space-y-0.5">
                     {item.color_name && (
-                      <p>颜色: <span className="font-medium text-gray-700">{item.color_name}</span>
+                      <p>颜色: <span className="font-medium text-gray-700">{getColorCn(item.color_code, item.color_name)}</span>
                         {item.color_code && <span className="text-gray-400"> ({item.color_code})</span>}
                       </p>
                     )}
@@ -339,9 +377,19 @@ export default function SupplierOrderDetailPage() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
+
+        {/* #21 제외 항목 안내 */}
+        {excludedItems.size > 0 && order.status === "발주확인중" && (
+          <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 mb-6 print:hidden">
+            <p className="text-yellow-800 text-sm font-medium">
+              ⚠️ {excludedItems.size}个颜色已标记为排除，接受订单时将自动排除这些颜色。
+            </p>
+          </div>
+        )}
 
         {/* 工艺单/附件 */}
         {order.attachments && order.attachments.length > 0 && (
@@ -363,6 +411,14 @@ export default function SupplierOrderDetailPage() {
           <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
             <h3 className="text-lg font-bold text-gray-800 mb-3">买家备注</h3>
             <p className="text-sm text-gray-600 whitespace-pre-wrap">{order.notes}</p>
+          </div>
+        )}
+
+        {/* #24 出货备注 표시 */}
+        {order.shipment_note && (
+          <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-3">出货备注</h3>
+            <p className="text-sm text-gray-600 whitespace-pre-wrap">{order.shipment_note}</p>
           </div>
         )}
 
@@ -459,7 +515,7 @@ export default function SupplierOrderDetailPage() {
                       <div className="flex-1 min-w-0">
                         <p className="font-mono text-xs text-blue-600 truncate">{item.internal_sku}</p>
                         <p className="text-xs text-gray-500">
-                          {item.color_name && `${item.color_name} `}
+                          {item.color_name && `${getColorCn(item.color_code, item.color_name)} `}
                           {item.supplier_size && `${item.supplier_size} `}
                           | 订单数量: {item.quantity}
                         </p>

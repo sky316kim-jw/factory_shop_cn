@@ -449,17 +449,35 @@ export default function NewProductPage() {
             {chatMessages.map((msg, index) => (
               <div
                 key={index}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} group`}
               >
-                <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white rounded-br-md"
-                      : "bg-white text-gray-800 border shadow-sm rounded-bl-md"
-                  }`}
-                >
-                  {/* JSON 블록은 숨기고 일반 텍스트만 표시 */}
-                  {msg.content.replace(/```json[\s\S]*?```/g, "").trim()}
+                <div className="flex flex-col items-end">
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
+                      msg.role === "user"
+                        ? "bg-blue-600 text-white rounded-br-md"
+                        : "bg-white text-gray-800 border shadow-sm rounded-bl-md"
+                    }`}
+                  >
+                    {/* JSON 블록은 숨기고 일반 텍스트만 표시 */}
+                    {msg.content.replace(/```json[\s\S]*?```/g, "").trim()}
+                  </div>
+                  {/* #18 사용자 메시지 삭제/수정 버튼 */}
+                  {msg.role === "user" && (
+                    <div className="flex gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => {
+                        const newText = prompt("修改消息:", msg.content);
+                        if (newText !== null && newText.trim()) {
+                          setChatMessages((prev) => prev.map((m, i) => i === index ? { ...m, content: newText.trim() } : m));
+                        }
+                      }} className="text-[10px] text-blue-400 hover:text-blue-600">修改</button>
+                      <button onClick={() => {
+                        if (confirm("确定要删除此消息吗？")) {
+                          setChatMessages((prev) => prev.filter((_, i) => i !== index));
+                        }
+                      }} className="text-[10px] text-red-400 hover:text-red-600">删除</button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

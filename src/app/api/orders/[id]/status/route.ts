@@ -108,6 +108,22 @@ export async function PUT(
       return NextResponse.json({ success: true, message: "발주가 승인되어 공급업체에 전송되었습니다.", order: data });
     }
 
+    // #2 반려 후 재발주: 발주거절 → 발주요청대기 (바이어가 수정 후 재발주 가능)
+    if (newStatus === "발주요청대기" && currentOrder.status === "발주거절") {
+      const { data, error } = await supabaseAdmin
+        .from("purchase_orders")
+        .update({
+          status: "발주요청대기",
+          rejection_reason: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", orderId)
+        .select()
+        .single();
+      if (error) return NextResponse.json({ error: "상태 변경 실패" }, { status: 500 });
+      return NextResponse.json({ success: true, message: "재발주 요청이 등록되었습니다.", order: data });
+    }
+
     // 일반 상태 변경 (역방향 불가)
     const currentIdx = STATUS_ORDER[currentOrder.status] ?? -1;
     const newIdx = STATUS_ORDER[newStatus] ?? -1;

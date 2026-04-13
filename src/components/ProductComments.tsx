@@ -28,7 +28,12 @@ export default function ProductComments({ productId, userId, viewerRole }: Props
   const [blockedMsg, setBlockedMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [myRole, setMyRole] = useState(viewerRole || "");
+  // 댓글 수정 상태
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editMsg, setEditMsg] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 스크롤 제어: 사용자가 직접 댓글 작성 시에만 자동 스크롤
+  const shouldScrollRef = useRef(false);
 
   // 공급업체가 보면 중국어, 아니면 한국어
   const isSupplierView = myRole === "supplier";
@@ -54,8 +59,12 @@ export default function ProductComments({ productId, userId, viewerRole }: Props
     return () => clearInterval(interval);
   }, [productId]);
 
+  // 사용자가 직접 댓글을 보낼 때만 하단으로 스크롤 (자동 새로고침 시에는 스크롤 안 함)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (shouldScrollRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      shouldScrollRef.current = false;
+    }
   }, [comments]);
 
   const handleSend = async () => {
@@ -72,6 +81,7 @@ export default function ProductComments({ productId, userId, viewerRole }: Props
       if (data.blocked) {
         setBlockedMsg(isSupplierView ? data.message_zh : data.message_ko);
       } else if (data.success && data.comment) {
+        shouldScrollRef.current = true; // 본인 댓글 전송 시에만 스크롤
         setComments((prev) => [...prev, data.comment]);
         setNewMsg("");
       }
@@ -88,6 +98,19 @@ export default function ProductComments({ productId, userId, viewerRole }: Props
     });
     const data = await res.json();
     if (data.success) loadComments();
+    else alert(data.error);
+  };
+
+  // 댓글 수정 처리
+  const handleEdit = async (commentId: string) => {
+    if (!editMsg.trim()) return;
+    const res = await fetch("/api/comments", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comment_id: commentId, action: "edit", user_id: userId, message: editMsg.trim() }),
+    });
+    const data = await res.json();
+    if (data.success) { setEditingId(null); setEditMsg(""); loadComments(); }
     else alert(data.error);
   };
 
@@ -230,8 +253,35 @@ export default function ProductComments({ productId, userId, viewerRole }: Props
                 </div>
               )}
 
-              {/* 삭제/신고 버튼 */}
+              {/* 수정 중인 댓글 */}
+              {editingId === c.id && (
+                <div className="mt-1 flex gap-1 max-w-[85%]">
+                  <input type="text" value={editMsg} onChange={(e) => setEditMsg(e.target.value)}
+                    className="flex-1 px-2 py-1 border rounded text-xs" placeholder={isSupplierView ? "修改内容" : "수정 내용"} />
+                  <button onClick={() => handleEdit(c.id)} className="text-[10px] px-2 py-1 bg-blue-500 text-white rounded">
+                    {isSupplierView ? "确认" : "확인"}
+                  </button>
+                  <button onClick={() => setEditingId(null)} className="text-[10px] px-2 py-1 bg-gray-300 rounded">
+                    {isSupplierView ? "取消" : "취소"}
+                  </button>
+                </div>
+              )}
+
+              {/* 삭제/수정/신고 버튼 */}
               <div className="flex gap-2 mt-0.5">
+                {/* 본인 댓글: 수정/삭제 가능 */}
+                {isMe && (
+                  <button onClick={() => { setEditingId(c.id); setEditMsg(c.message); }}
+                    className="text-[10px] text-blue-400 hover:text-blue-600">
+                    {isSupplierView ? "修改" : "수정"}
+                  </button>
+                )}
+                {isMe && (
+                  <button onClick={() => handleDelete(c.id)} className="text-[10px] text-red-400 hover:text-red-600">
+                    {isSupplierView ? "删除" : "삭제"}
+                  </button>
+                )}
+                {/* 관리자: 타인 댓글 삭제 */}
                 {isSuperAdmin && !isMe && (
                   <button onClick={() => handleDelete(c.id)} className="text-[10px] text-red-400 hover:text-red-600">
                     {isSupplierView ? "删除" : "삭제"}

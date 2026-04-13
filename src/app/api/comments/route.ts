@@ -136,21 +136,44 @@ JSON: {"is_blocked":false,"translated":"translation result here"}`,
 // PUT: 댓글 삭제(숨김) / 신고
 export async function PUT(request: NextRequest) {
   try {
-    const { comment_id, action, user_id } = await request.json();
+    const body = await request.json();
+    const { comment_id, action, user_id, message: editMessage } = body;
     if (!comment_id || !action || !user_id) {
       return NextResponse.json({ error: "필수 정보 부족" }, { status: 400 });
     }
 
     if (action === "delete") {
-      // 슈퍼관리자 확인
-      const { data: user } = await supabaseAdmin
-        .from("users").select("role").eq("id", user_id).single();
-      if (!user || user.role !== "super_admin") {
-        return NextResponse.json({ error: "삭제 권한이 없습니다." }, { status: 403 });
+      // 본인 댓글이면 삭제 허용, 아니면 슈퍼관리자만 삭제 가능
+      const { data: comment } = await supabaseAdmin
+        .from("product_comments").select("user_id").eq("id", comment_id).single();
+      const isOwnComment = comment?.user_id === user_id;
+      if (!isOwnComment) {
+        const { data: user } = await supabaseAdmin
+          .from("users").select("role").eq("id", user_id).single();
+        if (!user || user.role !== "super_admin") {
+          return NextResponse.json({ error: "삭제 권한이 없습니다." }, { status: 403 });
+        }
       }
       await supabaseAdmin
         .from("product_comments")
         .update({ is_deleted: true, deleted_by: user_id })
+        .eq("id", comment_id);
+      return NextResponse.json({ success: true });
+    }
+
+    // 댓글 수정 (본인만 가능)
+    if (action === "edit") {
+      if (!editMessage?.trim()) {
+        return NextResponse.json({ error: "수정 내용을 입력하세요." }, { status: 400 });
+      }
+      const { data: comment } = await supabaseAdmin
+        .from("product_comments").select("user_id").eq("id", comment_id).single();
+      if (!comment || comment.user_id !== user_id) {
+        return NextResponse.json({ error: "수정 권한이 없습니다." }, { status: 403 });
+      }
+      await supabaseAdmin
+        .from("product_comments")
+        .update({ message: editMessage.trim(), updated_at: new Date().toISOString() })
         .eq("id", comment_id);
       return NextResponse.json({ success: true });
     }
