@@ -100,12 +100,18 @@ export default function BuyerGalleryPage() {
             .eq("is_primary", true)
             .limit(1);
 
-          const supplier = p.suppliers as Record<string, unknown>;
-          const { data: uData } = await supabase
-            .from("users")
-            .select("member_code, company_name")
-            .eq("id", supplier.user_id as string)
-            .single();
+          // suppliers는 관계형 쿼리 결과라 배열일 수도, 객체일 수도 있음
+          const supplierRaw = p.suppliers as Record<string, unknown> | Record<string, unknown>[] | null;
+          const supplier = Array.isArray(supplierRaw) ? supplierRaw[0] : supplierRaw;
+          const supplierUserId = supplier?.user_id as string | undefined;
+
+          const { data: uData } = supplierUserId
+            ? await supabase
+                .from("users")
+                .select("member_code, company_name")
+                .eq("id", supplierUserId)
+                .single()
+            : { data: null };
 
           return {
             id: p.id as string,
@@ -126,10 +132,10 @@ export default function BuyerGalleryPage() {
 
       setAllProducts(enriched);
 
-      // 공급업체 목록 추출 (고유값)
+      // 공급업체 목록 추출 (고유값) — 회원번호 없는 항목은 제외
       const supplierMap = new Map<string, SupplierInfo>();
       enriched.forEach((p) => {
-        if (!supplierMap.has(p.supplier_member_code)) {
+        if (p.supplier_member_code && p.supplier_member_code !== "-" && !supplierMap.has(p.supplier_member_code)) {
           supplierMap.set(p.supplier_member_code, {
             member_code: p.supplier_member_code,
             company_name: p.supplier_company,
