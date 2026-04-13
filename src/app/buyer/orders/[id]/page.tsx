@@ -87,6 +87,9 @@ export default function BuyerOrderDetailPage() {
   // 쇼티지 사유
   const [shortageReason, setShortageReason] = useState("");
   const [showShortageModal, setShowShortageModal] = useState(false);
+  // 발주 반려 사유 모달
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
   const fetchOrder = async () => {
     const res = await fetch(`/api/orders/${orderId}`);
@@ -126,6 +129,83 @@ export default function BuyerOrderDetailPage() {
     };
     init();
   }, [router, orderId]);
+
+  // 발주요청대기 → 발주확인중 (관리자 승인)
+  const handleApprove = async () => {
+    if (!order) return;
+    if (!confirm("이 발주를 승인하시겠습니까? 승인 시 공급업체에 전달됩니다.")) return;
+    setProcessing(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "발주확인중" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("발주가 승인되었습니다.");
+        await fetchOrder();
+      } else {
+        alert(data.error || "승인 실패");
+      }
+    } catch {
+      alert("서버 오류가 발생했습니다.");
+    }
+    setProcessing(false);
+  };
+
+  // 발주요청대기 → 발주거절 (관리자 반려, 사유 필수)
+  const handleReject = async () => {
+    if (!order) return;
+    if (!rejectReason.trim()) {
+      alert("반려 사유를 입력해주세요.");
+      return;
+    }
+    setProcessing(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "발주거절", rejection_reason: rejectReason.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("발주가 반려되었습니다.");
+        setShowRejectModal(false);
+        setRejectReason("");
+        await fetchOrder();
+      } else {
+        alert(data.error || "반려 실패");
+      }
+    } catch {
+      alert("서버 오류가 발생했습니다.");
+    }
+    setProcessing(false);
+  };
+
+  // 발주거절 → 발주요청대기 (바이어 재요청)
+  const handleResubmit = async () => {
+    if (!order) return;
+    if (!confirm("이 발주를 다시 요청하시겠습니까? 관리자에게 재승인 요청이 전송됩니다.")) return;
+    setProcessing(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "발주요청대기" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("재요청이 등록되었습니다.");
+        await fetchOrder();
+      } else {
+        alert(data.error || "재요청 실패");
+      }
+    } catch {
+      alert("서버 오류가 발생했습니다.");
+    }
+    setProcessing(false);
+  };
 
   // 입고 처리 (partial: 이번 회차 등록 / shortage_close: 쇼티지 마감)
   const handleInbound = async (action: "complete" | "partial" | "shortage_close") => {
@@ -205,11 +285,50 @@ export default function BuyerOrderDetailPage() {
           </button>
         </div>
 
-        {/* 거절 알림 */}
-        {order.status === "발주거절" && order.rejection_reason && (
-          <div className="bg-red-50 border border-red-300 rounded-xl p-4 mb-6">
-            <p className="text-red-700 font-bold">발주가 거절되었습니다</p>
-            <p className="text-red-600 text-sm mt-1">사유: {order.rejection_reason}</p>
+        {/* 거절 알림 + 재요청 버튼 */}
+        {order.status === "발주거절" && (
+          <div className="bg-red-50 border border-red-300 rounded-xl p-4 mb-6 print:hidden">
+            <p className="text-red-700 font-bold">발주가 반려되었습니다</p>
+            {order.rejection_reason && (
+              <p className="text-red-600 text-sm mt-1">사유: {order.rejection_reason}</p>
+            )}
+            {/* 재요청 버튼 — 반려된 발주를 다시 요청 (발주요청대기로 되돌림) */}
+            <button
+              onClick={handleResubmit}
+              disabled={processing}
+              className="mt-3 px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+            >
+              {processing ? "처리 중..." : "↻ 수정 후 재요청"}
+            </button>
+          </div>
+        )}
+
+        {/* 승인 대기 알림 + 관리자 승인/반려 버튼 */}
+        {order.status === "발주요청대기" && (
+          <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 mb-6 print:hidden">
+            <p className="text-yellow-800 font-bold">발주 승인 대기 중</p>
+            <p className="text-yellow-700 text-sm mt-1">
+              일반바이어가 요청한 발주입니다. 관리자의 승인이 필요합니다.
+            </p>
+            {/* 관리자(admin/super_buyer/super_admin)만 승인/반려 버튼 표시 */}
+            {isAdmin && (
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={handleApprove}
+                  disabled={processing}
+                  className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+                >
+                  {processing ? "처리 중..." : "✓ 발주 승인"}
+                </button>
+                <button
+                  onClick={() => setShowRejectModal(true)}
+                  disabled={processing}
+                  className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+                >
+                  ✕ 발주 반려
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -610,6 +729,39 @@ export default function BuyerOrderDetailPage() {
           </div>
         )}
       </main>
+
+      {/* 발주 반려 사유 모달 */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full">
+            <h3 className="text-lg font-bold text-gray-800 mb-2">발주 반려</h3>
+            <p className="text-sm text-gray-500 mb-3">반려 사유를 입력해주세요. 바이어에게 전달됩니다.</p>
+            <label className="block text-sm font-medium text-gray-700 mb-1">반려 사유</label>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="예: 수량 조정이 필요합니다 / 컬러 재확인 요망"
+              rows={3}
+              className="w-full px-4 py-2 border rounded-lg mb-4 resize-none"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowRejectModal(false); setRejectReason(""); }}
+                className="flex-1 py-2 border rounded-lg text-gray-600 hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={processing || !rejectReason.trim()}
+                className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+              >
+                {processing ? "처리 중..." : "반려 확정"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 쇼티지 마감 모달 */}
       {showShortageModal && (
