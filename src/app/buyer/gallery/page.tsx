@@ -132,17 +132,22 @@ export default function BuyerGalleryPage() {
 
       setAllProducts(enriched);
 
-      // 공급업체 목록 추출 (고유값) — 회원번호 없는 항목은 제외
-      const supplierMap = new Map<string, SupplierInfo>();
-      enriched.forEach((p) => {
-        if (p.supplier_member_code && p.supplier_member_code !== "-" && !supplierMap.has(p.supplier_member_code)) {
-          supplierMap.set(p.supplier_member_code, {
-            member_code: p.supplier_member_code,
-            company_name: p.supplier_company,
-          });
-        }
-      });
-      setSupplierList(Array.from(supplierMap.values()).sort((a, b) => a.member_code.localeCompare(b.member_code)));
+      // 공급업체 목록은 users 테이블에서 직접 조회 (role=supplier)
+      // - 상품 조인 결과에 의존하지 않아 Vercel 환경에서도 안정적으로 동작
+      // - member_code는 users 테이블에 저장되어 있음
+      const { data: supplierUsers } = await supabase
+        .from("users")
+        .select("member_code, company_name")
+        .eq("role", "supplier")
+        .not("member_code", "is", null)
+        .order("member_code", { ascending: true });
+
+      setSupplierList(
+        (supplierUsers || []).map((u) => ({
+          member_code: u.member_code as string,
+          company_name: (u.company_name as string) || "",
+        }))
+      );
 
       setLoading(false);
 
